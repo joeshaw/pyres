@@ -52,6 +52,8 @@ class Worker(object):
                     loadavg.seek(0)
                     load = float(loadavg.read().split()[0])
                     if load > self.max_load:
+                        self._setproctitle('Waiting for system load < %.2f'
+                                            % self.max_load)
                         time.sleep(1)
                     else:
                         return
