@@ -7,6 +7,7 @@ import commands
 import random
 
 from pyres.exceptions import NoQueueError, JobError, TimeoutError, CrashError
+from pyres.exceptions import KilledError
 from pyres.job import Job
 from pyres import ResQ, Stat, __version__
 
@@ -183,7 +184,11 @@ class Worker(object):
                             logger.warning("Process stopped by signal %d" % os.WSTOPSIG(status))
                         else:
                             if os.WIFSIGNALED(status):
-                                raise CrashError("Unexpected exit by signal %d" % os.WTERMSIG(status))
+                                signum = os.WTERMSIG(status)
+                                if signum in (signal.SIGKILL, signal.SIGTERM):
+                                    raise KilledError("Child terminated by signal %d" % signum)
+                                else:
+                                    raise CrashError("Unexpected exit by signal %d" % signum)
                             raise CrashError("Unexpected exit status %d" % os.WEXITSTATUS(status))
 
                     time.sleep(0.5)
@@ -199,6 +204,17 @@ class Worker(object):
 
                 if ose.errno != errno.EINTR:
                     raise ose
+            except KilledError as err:
+                if self.job():
+                    # the child was killed externally. The job may be OK, so
+                    # requeue it and continue.
+                    logger.warning(err)
+                    logger.warning('Requeueing {class}:{args}'.format(**job._payload))
+                    self.requeue(job)
+                else:
+                    # child managed to finish up
+                    raise err
+
             except JobError:
                 self._handle_job_exception(job)
             finally:
@@ -224,6 +240,17 @@ class Worker(object):
             self.process(job)
             os._exit(0)
         self.child = None
+
+    def requeue(self, job):
+        # Push the job back on the head of the queue
+        # same as resq.push, but with an lpush
+        self.resq.watch_queue(job._queue)
+        self.resq.redis.lpush("resque:queue:%s" % job._queue,
+                              ResQ.encode(job._payload))
+
+        # remove ourself from the worker queue. This also keeps done_working
+        # form being called.
+        self.resq.redis.delete("resque:worker:%s" % str(self))
 
     def before_fork(self, job):
         """
