@@ -25,7 +25,7 @@ class Worker(object):
 
     job_class = Job
 
-    def __init__(self, queues=(), server="localhost:6379", password=None, timeout=None, max_load=None):
+    def __init__(self, queues=(), server="localhost:6379", password=None, timeout=None):
         self.queues = queues
         self.validate_queues()
         self._shutdown = False
@@ -33,7 +33,6 @@ class Worker(object):
         self.pid = os.getpid()
         self.hostname = os.uname()[1]
         self.timeout = timeout
-        self.max_load = max_load
 
         if isinstance(server, basestring):
             self.resq = ResQ(server=server, password=password)
@@ -41,25 +40,6 @@ class Worker(object):
             self.resq = server
         else:
             raise Exception("Bad server argument")
-
-    def _wait_for_load(self):
-        if not self.max_load:
-            return
-
-        try:
-            with open('/proc/loadavg', 'r') as loadavg:
-                while True:
-                    loadavg.seek(0)
-                    load = float(loadavg.read().split()[0])
-                    if load > self.max_load:
-                        self._setproctitle('Waiting for system load < %.2f'
-                                            % self.max_load)
-                        time.sleep(1)
-                    else:
-                        return
-        except:
-            # any problems, just continue business as usual
-            return
 
     def validate_queues(self):
         """Checks if a worker is given at least one queue to work on."""
@@ -157,10 +137,6 @@ class Worker(object):
             if self._shutdown:
                 logger.info('shutdown scheduled')
                 break
-
-            # Wait until the system's load is < max_load.
-            # No use in taking jobs when we don't have enough CPU
-            self._wait_for_load()
 
             job = self.reserve(interval)
 
