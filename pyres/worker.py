@@ -7,7 +7,7 @@ import commands
 import random
 
 from pyres.exceptions import NoQueueError, JobError, TimeoutError, CrashError
-from pyres.exceptions import KilledError
+from pyres.exceptions import SigtermError
 from pyres.job import Job
 from pyres import ResQ, Stat, __version__
 
@@ -107,7 +107,10 @@ class Worker(object):
     def kill_child(self, signum, frame):
         if self.child:
             logger.info("Killing child at %s" % self.child)
-            os.kill(self.child, signal.SIGKILL)
+            if signum == signal.SIGTERM:
+                os.kill(self.child, signal.SIGTERM)
+            else:
+                os.kill(self.child, signal.SIGKILL)
 
     def __str__(self):
         if getattr(self,'id', None):
@@ -185,8 +188,8 @@ class Worker(object):
                         else:
                             if os.WIFSIGNALED(status):
                                 signum = os.WTERMSIG(status)
-                                if signum in (signal.SIGKILL, signal.SIGTERM):
-                                    raise KilledError("Child terminated by signal %d" % signum)
+                                if signum == signal.SIGTERM:
+                                    raise SigtermError("Child terminated by signal %d" % signum)
                                 else:
                                     raise CrashError("Unexpected exit by signal %d" % signum)
                             raise CrashError("Unexpected exit status %d" % os.WEXITSTATUS(status))
@@ -204,7 +207,7 @@ class Worker(object):
 
                 if ose.errno != errno.EINTR:
                     raise ose
-            except KilledError as err:
+            except SigtermError as err:
                 if self.job():
                     # the child was killed externally. The job may be OK, so
                     # requeue it and continue.
@@ -225,6 +228,9 @@ class Worker(object):
 
             logger.debug('done waiting')
         else:
+            # unregister SIGTERM, so we can be killed nicely
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
             self._setproctitle("Processing %s since %s" %
                                (job,
                                 datetime.datetime.now()))

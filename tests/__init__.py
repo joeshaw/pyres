@@ -56,7 +56,7 @@ class CrashJob(object):
         ctypes.string_at(1)
         return "Never got here"
 
-class KillJob(object):
+class SigtermJob(object):
     queue = 'basic'
 
     @staticmethod
@@ -64,7 +64,7 @@ class KillJob(object):
         import time
         # sleep for a moment, becuase we're racing the call to os.waitpid
         time.sleep(.5)
-        os.kill(os.getpid(), 9)
+        os.kill(os.getpid(), 15)
         return 'Should kave died'
 
 class PrematureExitJob(object):

@@ -1,4 +1,4 @@
-from tests import PyResTests, Basic, TestProcess, ErrorObject, RetryOnExceptionJob, TimeoutJob, CrashJob, PrematureExitJob, PrematureHardExitJob, KillJob
+from tests import PyResTests, Basic, TestProcess, ErrorObject, RetryOnExceptionJob, TimeoutJob, CrashJob, PrematureExitJob, PrematureHardExitJob, SigtermJob
 from pyres import ResQ
 from pyres.job import Job
 from pyres.scheduler import Scheduler
@@ -224,9 +224,9 @@ class WorkerTests(PyResTests):
         assert worker.job() == {}
         assert worker.get_failed() == 1
 
-    def test_killed_worker_gets_requeued(self):
+    def test_sigterm_worker_gets_requeued(self):
         worker = Worker(['basic'])
-        self.resq.enqueue(KillJob, 'string argument')
+        self.resq.enqueue(SigtermJob, 'string argument')
 
         assert worker.job() == {}
         assert worker.get_failed() == 0
