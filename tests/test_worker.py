@@ -1,4 +1,4 @@
-from tests import PyResTests, Basic, TestProcess, ErrorObject, RetryOnExceptionJob, TimeoutJob, CrashJob, PrematureExitJob, PrematureHardExitJob
+from tests import PyResTests, Basic, TestProcess, ErrorObject, RetryOnExceptionJob, TimeoutJob, CrashJob, PrematureExitJob, PrematureHardExitJob, SigtermJob
 from pyres import ResQ
 from pyres.job import Job
 from pyres.scheduler import Scheduler
@@ -13,7 +13,7 @@ class WorkerTests(PyResTests):
         from pyres.exceptions import NoQueueError
         self.assertRaises(NoQueueError, Worker,[])
         self.assertRaises(Exception, Worker,['test'],TestProcess())
-    
+
     def test_startup(self):
         worker = Worker(['basic'])
         worker.startup()
@@ -24,13 +24,13 @@ class WorkerTests(PyResTests):
         assert signal.getsignal(signal.SIGINT) == worker.shutdown_all
         assert signal.getsignal(signal.SIGQUIT) == worker.schedule_shutdown
         assert signal.getsignal(signal.SIGUSR1) == worker.kill_child
-    
+
     def test_register(self):
         worker = Worker(['basic'])
         worker.register_worker()
         name = "%s:%s:%s" % (os.uname()[1],os.getpid(),'basic')
         assert self.redis.sismember('resque:workers',name)
-    
+
     def test_unregister(self):
         worker = Worker(['basic'])
         worker.register_worker()
@@ -38,7 +38,7 @@ class WorkerTests(PyResTests):
         assert self.redis.sismember('resque:workers',name)
         worker.unregister_worker()
         assert name not in self.redis.smembers('resque:workers')
-    
+
     def test_working_on(self):
         name = "%s:%s:%s" % (os.uname()[1],os.getpid(),'basic')
         self.resq.enqueue(Basic,"test1")
@@ -46,7 +46,7 @@ class WorkerTests(PyResTests):
         worker = Worker(['basic'])
         worker.working_on(job)
         assert self.redis.exists("resque:worker:%s" % name)
-    
+
     def test_processed(self):
         name = "%s:%s:%s" % (os.uname()[1],os.getpid(),'basic')
         worker = Worker(['basic'])
@@ -60,7 +60,7 @@ class WorkerTests(PyResTests):
         assert self.redis.get("resque:stat:processed") == str(2)
         assert self.redis.get("resque:stat:processed:%s" % name) == str(2)
         assert worker.get_processed() == 2
-    
+
     def test_failed(self):
         name = "%s:%s:%s" % (os.uname()[1],os.getpid(),'basic')
         worker = Worker(['basic'])
@@ -74,7 +74,7 @@ class WorkerTests(PyResTests):
         assert self.redis.get("resque:stat:failed") == str(2)
         assert self.redis.get("resque:stat:failed:%s" % name) == str(2)
         assert worker.get_failed() == 2
-    
+
     def test_process(self):
         name = "%s:%s:%s" % (os.uname()[1],os.getpid(),'basic')
         self.resq.enqueue(Basic,"test1")
@@ -89,8 +89,8 @@ class WorkerTests(PyResTests):
         assert not self.redis.get('resque:worker:%s' % worker)
         assert not self.redis.get("resque:stat:failed")
         assert not self.redis.get("resque:stat:failed:%s" % name)
-        
-    
+
+
     def test_signals(self):
         worker = Worker(['basic'])
         worker.startup()
@@ -104,7 +104,7 @@ class WorkerTests(PyResTests):
         #worker.work()
         #assert worker.child
         assert not worker.kill_child(frame, signal.SIGUSR1)
-    
+
     def test_job_failure(self):
         self.resq.enqueue(ErrorObject)
         worker = Worker(['basic'])
@@ -113,7 +113,7 @@ class WorkerTests(PyResTests):
         assert not self.redis.get('resque:worker:%s' % worker)
         assert self.redis.get("resque:stat:failed") == str(1)
         assert self.redis.get("resque:stat:failed:%s" % name) == str(1)
-    
+
     def test_get_job(self):
         worker = Worker(['basic'])
         self.resq.enqueue(Basic,"test1")
@@ -126,7 +126,7 @@ class WorkerTests(PyResTests):
         w2 = Worker(['basic'])
         print w2.job()
         assert w2.job() == {}
-    
+
     def test_working(self):
         worker = Worker(['basic'])
         self.resq.enqueue_from_string('tests.Basic','basic','test1')
@@ -138,7 +138,7 @@ class WorkerTests(PyResTests):
         assert len(workers) == 1
         assert str(worker) == str(workers[0])
         assert worker != workers[0]
-    
+
     def test_started(self):
         import datetime
         worker = Worker(['basic'])
@@ -149,7 +149,7 @@ class WorkerTests(PyResTests):
         assert worker.started == str(int(time.mktime(dt.timetuple())))
         worker.started = None
         assert not self.redis.exists('resque:worker:%s:started' % name)
-    
+
     def test_state(self):
         worker = Worker(['basic'])
         assert worker.state() == 'idle'
@@ -160,7 +160,7 @@ class WorkerTests(PyResTests):
         assert worker.state() == 'working'
         worker.done_working(job)
         assert worker.state() == 'idle'
-    
+
     def test_prune_dead_workers(self):
         worker = Worker(['basic']) # we haven't registered this worker, so the assertion below holds
         assert self.redis.scard('resque:workers') == 0
@@ -223,6 +223,26 @@ class WorkerTests(PyResTests):
 
         assert worker.job() == {}
         assert worker.get_failed() == 1
+
+    def test_sigterm_worker_gets_requeued(self):
+        worker = Worker(['basic'])
+        self.resq.enqueue(SigtermJob, 'string argument')
+
+        assert worker.job() == {}
+        assert worker.get_failed() == 0
+
+        job = worker.reserve()
+        worker.fork_worker(job)
+
+        # our last job should land back in the queue
+        job2 = worker.reserve()
+        assert str(job2) == str(job)
+
+        # didn't run job2, so there shouldn't be more jobs
+        assert worker.reserve(timeout=1) == None
+
+        assert worker.job() == {}
+        assert worker.get_failed() == 0
 
     def test_detect_non_0_sys_exit_as_failure(self):
         worker = Worker(['basic'])

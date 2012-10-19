@@ -9,3 +9,6 @@ class TimeoutError(JobError):
 
 class CrashError(JobError):
     pass
+
+class SigtermError(JobError):
+    pass
